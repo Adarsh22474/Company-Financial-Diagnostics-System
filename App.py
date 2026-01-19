@@ -4,11 +4,36 @@ import requests
 from bs4 import BeautifulSoup
 
 
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "data_loaded" not in st.session_state:
+    st.session_state.data_loaded = False
+
+
 st.set_page_config(page_title="Company Financial Diagnostics",layout="wide")
 st.title("Company Financial Diagnostics System")
 st.markdown("Analyze a company's financial performance, stability, and cash flow quality using historical financial statements.")
-url = st.text_input("Enter Screener Company URL",placeholder="https://www.screener.in/company/XXXX/")
-analyze_clicked = st.button("Analyze Company")
+if not st.session_state.logged_in:
+    st.subheader("Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if username.strip() and password.strip():
+            st.session_state.logged_in = True
+            st.rerun()
+        else:
+            st.error("Please enter valid credentials")
+
+    st.stop()
+
+url = st.text_input("Enter Screener Company URL", placeholder="https://www.screener.in/company/XXXX/", disabled=st.session_state.data_loaded)
+
+if st.button("Analyze Company") and url:
+    st.session_state.data_loaded = True
+
 
 def clean_numeric_value(text):
     if text is None:
@@ -237,36 +262,95 @@ def compute_growth(series):
         return None
     return series.pct_change() * 100
 
+def clean_year_column(df):
+    df = df.copy()
+
+    # Convert to string and clean whitespace
+    df["Year"] = df["Year"].astype(str).str.strip()
+
+    # Extract 4-digit year only (e.g. 2016 from "2016\n18m")
+    df["Year"] = df["Year"].str.extract(r"(\d{4})", expand=False)
+
+    # Drop rows where year could not be extracted
+    df = df.dropna(subset=["Year"])
+
+    # Convert to int
+    df["Year"] = df["Year"].astype(int)
+
+    return df
+
+
+if st.session_state.data_loaded and url:
+
+    if "pnl_y_df" not in st.session_state:
+
+        with st.spinner("Fetching company financial data..."):
+                company_name = scrape_company_name(url)
+
+                ratios_df = scrape_company_ratios(url, company_name)
+
+                pnl_q_df = scrape_pnl_quarterly(url, company_name)
+
+                pnl_y_raw = scrape_financial_section(url, "profit-loss", company_name)
+                pnl_y_df = process_statement(pnl_y_raw)
+                pnl_y_df.columns = (pnl_y_df.columns.str.replace(r"\s*\+\s*$", "", regex=True).str.strip())
+                pnl_q_df.columns = ( pnl_q_df.columns.str.replace(r"\s*\+\s*$", "", regex=True).str.strip())
 
 
 
-if analyze_clicked and url:
+                balance_raw = scrape_financial_section(url, "balance-sheet", company_name)
+                balance_df = process_statement(balance_raw)
+                balance_df.columns = (balance_df.columns.str.replace(r"\s*\+\s*$","", regex=True).str.strip())
 
-    with st.spinner("Fetching company financial data..."):
-        company_name = scrape_company_name(url)
+                cashflow_raw = scrape_financial_section(url, "cash-flow", company_name)
+                cashflow_df = process_statement(cashflow_raw)
+                cashflow_df.columns= (cashflow_df.columns.str.replace(r"\s*\+\s*$","", regex=True).str.strip())
 
-        ratios_df = scrape_company_ratios(url, company_name)
-
-        pnl_q_df = scrape_pnl_quarterly(url, company_name)
-
-        pnl_y_raw = scrape_financial_section(url, "profit-loss", company_name)
-        pnl_y_df = process_statement(pnl_y_raw)
-        pnl_y_df.columns = (pnl_y_df.columns.str.replace(r"\s*\+\s*$", "", regex=True).str.strip())
-        pnl_q_df.columns = ( pnl_q_df.columns.str.replace(r"\s*\+\s*$", "", regex=True).str.strip())
+                shareholding_raw = scrape_yearly_shareholding(url, company_name)
+                shareholding_df = process_statement(shareholding_raw)
+                shareholding_df.columns = (shareholding_df.columns.str.replace(r"\s*\+\s*$","", regex=True).str.strip())
 
 
 
-        balance_raw = scrape_financial_section(url, "balance-sheet", company_name)
-        balance_df = process_statement(balance_raw)
-        balance_df.columns = (balance_df.columns.str.replace(r"\s*\+\s*$","", regex=True).str.strip())
 
-        cashflow_raw = scrape_financial_section(url, "cash-flow", company_name)
-        cashflow_df = process_statement(cashflow_raw)
-        cashflow_df.columns= (cashflow_df.columns.str.replace(r"\s*\+\s*$","", regex=True).str.strip())
 
-        shareholding_raw = scrape_yearly_shareholding(url, company_name)
-        shareholding_df = process_statement(shareholding_raw)
-        shareholding_df.columns = (shareholding_df.columns.str.replace(r"\s*\+\s*$","", regex=True).str.strip())
+        with st.sidebar:
+            st.header("Analysis Controls")
+
+            analysis_window = st.selectbox("Analysis Window",["Last Decade","Last 3 Years", "Last 5 Years","Last 7 Years"])
+
+            if st.button("Reset Analysis"):
+                st.session_state.data_loaded = False
+                st.rerun()
+
+            if st.button("Logout"):
+                st.session_state.clear()
+                st.rerun()
+
+            pnl_y_df = clean_year_column(pnl_y_df)
+            balance_df = clean_year_column(balance_df)
+            cashflow_df = clean_year_column(cashflow_df)
+            shareholding_df = clean_year_column(shareholding_df)
+
+
+            max_year = pnl_y_df["Year"].max()
+
+            if analysis_window == "Last Decade":
+                start_year = max_year - 9
+            elif analysis_window == "Last 3 Years":
+                start_year = max_year - 2
+            elif analysis_window == "Last 5 Years":
+                start_year = max_year - 4
+            elif analysis_window == "Last 7 Years":
+                start_year = max_year - 6
+            
+
+
+            pnl_y_df = pnl_y_df[pnl_y_df["Year"] >= start_year]
+            balance_df = balance_df[balance_df["Year"] >= start_year]
+            cashflow_df = cashflow_df[cashflow_df["Year"] >= start_year]
+            shareholding_df = shareholding_df[shareholding_df["Year"] >= start_year]
+
 
         tabs = st.tabs(["Dataset",
                         "Overview",
@@ -275,7 +359,8 @@ if analyze_clicked and url:
                         "Financial Position",
                         "Cash Flow Quality",
                         "Shareholding",
-                        "Executive Page" ])
+                        "Executive Page",
+                         "Exit Page" ])
 
         with tabs[0]:
 
@@ -308,24 +393,28 @@ if analyze_clicked and url:
             low_52w = get_ratio_value(ratios_df,"52W Low")
             face_value = get_ratio_value(ratios_df,"Face Value")
             book_value = get_ratio_value(ratios_df,"Book Value")
-
+            roe_roce_gap = roe - roce if roe and roce else "NA"
+            valuation_density = pe_ratio / roe if pe_ratio and roe else "NA"
             # --- Headline Metrics ---
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
 
             col1.metric("Market Cap", formatting(market_cap,"currency") if market_cap else "NA")
             col2.metric("Current Price",formatting(current_price,"price")if current_price else "NA")
             col3.metric("P/E Ratio", formatting(pe_ratio,"ratio")if pe_ratio else "NA")
-
-            col4, col5, col6 = st.columns(3)
-            col4.metric("ROE (%)", formatting(roe,"percent") if roe else "NA")
+            col4.metric("Book Value", formatting(book_value,"price") if book_value else "NA")
+            
+            col5, col6, col7, col8 = st.columns(4)
+            
             col5.metric("ROCE (%)", formatting(roce,"percent") if roce else "NA")
             col6.metric("Dividend Yield (%)", formatting(dividend_yield,"percent") if dividend_yield else "NA")
+            col7.metric("ROE (%)", formatting(roe,"percent") if roe else "NA")
+            col8.metric("ROE_ROCE_Gap",formatting(roe_roce_gap,"ratio") if roe_roce_gap else "NA")
 
-            col7, col8 ,col9,col10 = st.columns(4)
-            col7.metric("52W High", formatting(high_52w,"price") if high_52w else "NA")
-            col8.metric("52W Low", formatting(low_52w,"price") if low_52w else "NA")
-            col9.metric("Book Value", formatting(book_value,"price") if book_value else "NA")
-            col10.metric("Face Value",formatting( face_value,"price") if face_value else "NA")
+            col9, col10, col11, col12 = st.columns(4)
+            col9.metric("52W High", formatting(high_52w,"price") if high_52w else "NA")
+            col10.metric("52W Low", formatting(low_52w,"price") if low_52w else "NA")
+            col11.metric("Face Value",formatting( face_value,"price") if face_value else "NA")
+            col12.metric("Valuation Density",formatting(valuation_density,'ratio') if valuation_density else "NA")
 
                 # --- Automated Summary ---
             summary_points = []
@@ -378,7 +467,7 @@ if analyze_clicked and url:
 
                 with colA:
                     if "Sales" in yearly_df.columns:
-                        st.line_chart(yearly_df.set_index("Year")["Sales"])
+                        st.line_chart(yearly_df.set_index(yearly_df["Year"].astype(str))["Sales"])
 
                        
                     series = yearly_df["Sales"].dropna()
@@ -402,7 +491,7 @@ if analyze_clicked and url:
 
                 with colB:
                     if "Net Profit" in yearly_df.columns:
-                        st.line_chart(yearly_df.set_index("Year")["Net Profit"])
+                        st.line_chart(yearly_df.set_index(yearly_df["Year"].astype(str))["Net Profit"])
                         profit_series = yearly_df["Net Profit"].dropna()
                         profit_growth = profit_series.pct_change().dropna()
                     if len(profit_series) >= 3:
@@ -420,7 +509,7 @@ if analyze_clicked and url:
 
 
                 if "EPS in Rs" in yearly_df.columns:
-                    st.line_chart(yearly_df.set_index("Year")["EPS in Rs"])
+                    st.line_chart(yearly_df.set_index(yearly_df["Year"].astype(str))["EPS in Rs"])
                     eps_series = yearly_df["EPS in Rs"].dropna()
 
                     if len(eps_series) >= 3:
@@ -489,7 +578,7 @@ if analyze_clicked and url:
 
             
             if 'Operating Profit' in yearly_df.columns:
-                st.area_chart(yearly_df.set_index("Year")["Operating Profit"])
+                st.area_chart(yearly_df.set_index(yearly_df["Year"].astype(str))["Operating Profit"])
                 op_series = yearly_df["Operating Profit"].dropna()
                 if len(op_series)>=3:
                     op_growth = op_series.pct_change().dropna()
@@ -501,7 +590,7 @@ if analyze_clicked and url:
                 st.info("Insufficient data to assess operating profit trend.")
             
             if "OPM%" in yearly_df.columns:
-                st.line_chart(yearly_df.set_index("Year")["OPM%"])
+                st.line_chart(yearly_df.set_index(yearly_df["Year"].astype(str))["OPM%"])
                 margin_series = yearly_df["OPM%"].dropna()
                 if len(margin_series) >= 3:
                     margin_change = margin_series.diff().dropna()
@@ -516,7 +605,7 @@ if analyze_clicked and url:
 
             st.markdown("### Profit Conversion Efficiency")
             if "Net Profit" in yearly_df.columns and "Operating Profit" in yearly_df.columns:
-                st.line_chart(yearly_df.set_index("Year")[["Operating Profit", "Net Profit"]])
+                st.line_chart(yearly_df.set_index(yearly_df["Year"].astype(str))[["Operating Profit", "Net Profit"]])
                 net_profit = yearly_df["Net Profit"].dropna()
                 operating_profit = yearly_df["Operating Profit"].dropna()
                 if len(net_profit) >= 3 and len(operating_profit) >= 3:
@@ -560,7 +649,7 @@ if analyze_clicked and url:
 
             with col1:
                 if "Total Assets" in bs_df.columns:
-                    st.area_chart(bs_df.set_index("Year")["Total Assets"])
+                    st.area_chart(bs_df.set_index(bs_df["Year"].astype(str))["Total Assets"])
                     assets = bs_df["Total Assets"].dropna()
                     if len(assets) >= 3:
                         assets_growth = assets.pct_change().dropna()
@@ -573,7 +662,7 @@ if analyze_clicked and url:
 
             with col2:
                 if "Total Liabilities" in bs_df.columns:
-                    st.line_chart(bs_df.set_index("Year")["Total Liabilities"])
+                    st.line_chart(bs_df.set_index(bs_df["Year"].astype(str))["Total Liabilities"])
                     liabilities = bs_df["Total Liabilities"].dropna()
                     if len(liabilities) >= 3:
                         liabilities_growth = liabilities.pct_change().dropna()
@@ -586,7 +675,7 @@ if analyze_clicked and url:
 
             st.markdown("### Capital Structure & Leverage")
             if "Borrowings" in bs_df.columns:
-                st.line_chart(bs_df.set_index("Year")["Borrowings"])
+                st.line_chart(bs_df.set_index(bs_df["Year"].astype(str))["Borrowings"])
                 debt = bs_df["Borrowings"].dropna()
                 if len(debt)>=3:
                     debt_growth = debt.pct_change().dropna()
@@ -600,7 +689,7 @@ if analyze_clicked and url:
             st.markdown("### Reserves & Financial Cushion")
 
             if "Reserves" in bs_df.columns:
-                st.line_chart( bs_df.set_index("Year")["Reserves"])
+                st.line_chart( bs_df.set_index(bs_df["Year"].astype(str))["Reserves"])
                 reserves = bs_df["Reserves"].dropna()
                 if len(reserves) >= 3:
                     reserves_growth = reserves.pct_change().dropna()
@@ -637,7 +726,7 @@ if analyze_clicked and url:
             st.markdown("### Operating Cash Flow Strength")
 
             if "Cash from Operating Activity" in cf_df.columns:
-                st.area_chart(cf_df.set_index("Year")["Cash from Operating Activity"])
+                st.area_chart(cf_df.set_index(cf_df["Year"].astype(str))["Cash from Operating Activity"])
                 ocf = cf_df["Cash from Operating Activity"].dropna()
                 if len(ocf) >= 3:
                     if ocf.iloc[-1] > ocf.iloc[0]:
@@ -653,7 +742,7 @@ if analyze_clicked and url:
             st.markdown("### Profit vs Cash Flow Quality")
 
             if "Cash from Operating Activity" in cf_df.columns and "Net Profit" in cf_df.columns:
-                st.line_chart(cf_df.set_index("Year")[["Net Profit", "Cash from Operating Activity"]])
+                st.line_chart(cf_df.set_index(cf_df["Year"].astype(str))[["Net Profit", "Cash from Operating Activity"]])
                 profit = cf_df["Net Profit"].dropna()
                 ocf = cf_df["Cash from Operating Activity"].dropna()
 
@@ -676,7 +765,7 @@ if analyze_clicked and url:
             if "Cash from Operating Activity" in cf_df.columns and "Cash from Investing Activity" in cf_df.columns:
                 cf_df["Free Cash Flow"] = (cf_df["Cash from Operating Activity"] + cf_df["Cash from Investing Activity"])
 
-                st.line_chart( cf_df.set_index("Year")["Free Cash Flow"])
+                st.line_chart( cf_df.set_index(cf_df["Year"].astype(str))["Free Cash Flow"])
                 fcf = cf_df["Free Cash Flow"].dropna()
 
                 if len(fcf) >= 3:
@@ -715,7 +804,7 @@ if analyze_clicked and url:
 
             if "Promoters" in sh_df.columns:
                 st.markdown("#### Promoter Shareholding (%)")
-                st.line_chart(sh_df.set_index("Year")["Promoters"])
+                st.line_chart(sh_df.set_index(sh_df["Year"].astype(str))["Promoters"])
                 promoters = sh_df["Promoters"].dropna()
 
                 if len(promoters) >= 3:
@@ -737,7 +826,7 @@ if analyze_clicked and url:
             with col1:
                 if "FIIs" in sh_df.columns:
                     st.markdown("#### Foreign Institutional Holding (%)")
-                    st.line_chart(sh_df.set_index("Year")["FIIs"])
+                    st.line_chart(sh_df.set_index(sh_df["Year"].astype(str))["FIIs"])
                     fii = sh_df["FIIs"].dropna()
                     if len(fii) >= 3:
                         if fii.iloc[-1] > fii.iloc[0]:
@@ -751,7 +840,7 @@ if analyze_clicked and url:
             with col2:
                 if "DIIs" in sh_df.columns:
                     st.markdown("#### Domestic Institutional Holding (%)")
-                    st.line_chart(sh_df.set_index("Year")["DIIs"])
+                    st.line_chart(sh_df.set_index(sh_df["Year"].astype(str))["DIIs"])
                     dii = sh_df["DIIs"].dropna()
                     if len(dii) >= 3:
                         if dii.iloc[-1] > dii.iloc[0]:
@@ -766,7 +855,7 @@ if analyze_clicked and url:
 
             if "Public" in sh_df.columns:
                 st.markdown("#### Public Shareholding (%)")
-                st.area_chart(sh_df.set_index("Year")["Public"])
+                st.area_chart(sh_df.set_index(sh_df["Year"].astype(str))["Public"])
 
                 public = sh_df["Public"].dropna()
 
@@ -780,150 +869,209 @@ if analyze_clicked and url:
 
 
         with tabs[7]:
-            st.subheader(f"Executive Financial Summary – {company_name}")
+                st.subheader(f"Executive Financial Summary – {company_name}")
 
-            strengths = []
-            risks = []
+                strengths = []
+                risks = []
 
 
-            # 1. GROWTH QUALITY (0–20)
+                # 1. GROWTH QUALITY (0–20)
 
-            growth_score = 10
+                growth_score = 14
 
-            if "Sales" in pnl_y_df.columns and "Net Profit" in pnl_y_df.columns:
-                sales = pnl_y_df.sort_values("Year")["Sales"].dropna()
-                profit = pnl_y_df.sort_values("Year")["Net Profit"].dropna()
+                if "Sales" in pnl_y_df.columns and "Net Profit" in pnl_y_df.columns:
+                    sales = pnl_y_df.sort_values("Year")["Sales"].dropna()
+                    profit = pnl_y_df.sort_values("Year")["Net Profit"].dropna()
 
-                if len(sales) >= 3 and len(profit) >= 3:
-                    if sales.iloc[-1] > sales.iloc[0] and profit.iloc[-1] > profit.iloc[0]:
-                        growth_score = 18
-                        strengths.append("Revenue and profits have grown consistently, indicating healthy business expansion.")
-                    elif sales.iloc[-1] > sales.iloc[0] and profit.iloc[-1] <= profit.iloc[0]:
-                        growth_score = 8
-                        risks.append("Revenue growth has not translated into profit growth, indicating margin or cost pressures.")
+                    if len(sales) >= 3 and len(profit) >= 3:
+                        if sales.iloc[-1] > sales.iloc[0] and profit.iloc[-1] > profit.iloc[0]:
+                            growth_score = 16
+                            strengths.append("Revenue and profits have grown consistently.")
+                        elif sales.iloc[-1] > sales.iloc[0] and profit.iloc[-1] <= profit.iloc[0]:
+                            growth_score = 10
+                            risks.append("Revenue growth has not translated into profit growth.")
+                        else:
+                            growth_score = 8
+                            risks.append("Business growth momentum appears weak or inconsistent.")
+
+
+                # 2. PROFITABILITY & EFFICIENCY (0–20)
+
+                profitability_score = 14
+
+                is_cyclical = False
+
+                if "OPM %" in pnl_y_df.columns:
+                    margins = pnl_y_df.sort_values("Year")["OPM %"].dropna()
+
+                    if len(margins) >= 3:
+                        margin_change = margins.iloc[-1] - margins.iloc[0]
+
+                        # Detect cyclicality via margin volatility
+                        if margins.std() > 5:
+                            is_cyclical = True
+
+                        if margin_change > 1:
+                            profitability_score = 16
+                            strengths.append("Operating margins have expanded.")
+                        elif margin_change >= -2:
+                            profitability_score = 15
+                            strengths.append("Operating margins have remained broadly stable.")
+                        else:
+                            profitability_score = 9
+                            risks.append("Operating margins have seen sustained pressure.")
+
+                # ---- ROE / ROCE quality boost ----
+                roe = ratios_df.loc[ratios_df["Metric"] == "ROE", "Value"]
+                roce = ratios_df.loc[ratios_df["Metric"] == "ROCE", "Value"]
+
+                if not roe.empty and not roce.empty:
+                    if roe.values[0] >= 18 and roce.values[0] >= 18:
+                        profitability_score = min(profitability_score + 2, 20)
+                        strengths.append("Strong ROE and ROCE indicate efficient capital usage.")
+
+
+                # 3. FINANCIAL POSITION (0–20)
+
+                balance_score = 14
+
+                balance_df.columns = balance_df.columns.str.replace("+", "", regex=False).str.strip()
+
+                if "Borrowings" in balance_df.columns and "Reserves" in balance_df.columns:
+                    debt = balance_df["Borrowings"]
+                    reserves = balance_df["Reserves"].dropna()
+
+                    # Absolute (not %) leverage logic
+                    if debt.isna().all() or debt.max(skipna=True) <= 0.1 * reserves.max():
+                        balance_score = 18
+                        strengths.append("Minimal leverage supported by a strong reserve base.")
                     else:
-                        growth_score = 6
-                        risks.append("Business growth momentum appears weak or inconsistent.")
+                        debt = debt.dropna()
+                        if len(debt) >= 3 and len(reserves) >= 3:
+                            if reserves.diff().mean() >= debt.diff().mean():
+                                balance_score = 16
+                                strengths.append("Balance sheet growth is largely internally funded.")
+                            else:
+                                balance_score = 9
+                                risks.append("Borrowings are rising faster than internal reserves.")
 
-    
-            # 2. PROFITABILITY (0–20)
 
-            profitability_score = 10
+                # 4. CASH FLOW QUALITY (0–20)
 
-            if "OPM %" in pnl_y_df.columns:
-                margins = pnl_y_df.sort_values("Year")["OPM %"].dropna()
+                cashflow_score = 15
 
-                if len(margins) >= 3:
-                    if margins.iloc[-1] > margins.iloc[0]:
-                        profitability_score = 16
-                        strengths.append("Operating margins have improved, reflecting better efficiency or pricing power.")
-                    elif margins.iloc[-1] < margins.iloc[0]:
-                        profitability_score = 7
-                        risks.append("Operating margins have declined over time, indicating rising costs or competitive pressure.")
+                ocf_col = None
+                for col in cashflow_df.columns:
+                    if "operating" in col.lower() and "cash" in col.lower():
+                        ocf_col = col
+                        break
 
-            
-            # 3. FINANCIAL POSITION (0–20)
-         
-            balance_score = 10
+                if ocf_col and "Net Profit" in cashflow_df.columns:
+                    ocf = cashflow_df.sort_values("Year")[ocf_col].dropna()
+                    profit = cashflow_df.sort_values("Year")["Net Profit"].dropna()
 
-            if "Borrowings" in balance_df.columns and "Reserves" in balance_df.columns:
-                debt = balance_df.sort_values("Year")["Borrowings"].dropna()
-                reserves = balance_df.sort_values("Year")["Reserves"].dropna()
+                    if len(ocf) >= 3 and len(profit) >= 3:
+                        if (ocf > profit).sum() >= len(ocf) - 1:
+                            cashflow_score = 20
+                            strengths.append("Operating cash flows consistently exceed reported profits.")
+                        elif (ocf / profit).mean() >= 0.8:
+                            cashflow_score = 17
+                            strengths.append("Profits are well supported by operating cash flows.")
+                        else:
+                            cashflow_score = 9
+                            risks.append("Weak cash conversion relative to reported profits.")
 
-                if len(debt) >= 3 and len(reserves) >= 3:
-                    if reserves.pct_change().mean() >= debt.pct_change().mean():
-                        balance_score = 17
-                        strengths.append("Balance sheet growth is largely internally funded, indicating financial stability.")
-                    else:
-                        balance_score = 7
-                        risks.append("Borrowings are growing faster than reserves, increasing balance sheet risk.")
 
-            # ============================
-            # 4. CASH FLOW QUALITY (0–20)
-            # ============================
-            cashflow_score = 10
+                # 5. GOVERNANCE & OWNERSHIP (0–20)
 
-            if "Cash from Operating Activity" in cashflow_df.columns and "Net Profit" in cashflow_df.columns:
-                ocf = cashflow_df.sort_values("Year")["Cash from Operating Activity"].dropna()
-                profit = cashflow_df.sort_values("Year")["Net Profit"].dropna()
+                governance_score = 14
 
-                if len(ocf) >= 3 and len(profit) >= 3:
-                    cash_conversion = (ocf / profit).mean()
+                if "Promoters" in shareholding_df.columns:
+                    promoters = shareholding_df.sort_values("Year")["Promoters"].dropna()
 
-                    if cash_conversion > 1:
-                        cashflow_score = 19
-                        strengths.append("Operating cash flows exceed reported profits, indicating strong earnings quality.")
-                    elif cash_conversion > 0.8:
-                        cashflow_score = 15
-                        strengths.append("Reported profits are well supported by operating cash flows.")
-                    else:
-                        cashflow_score = 6
-                        risks.append("Operating cash flows lag reported profits, raising concerns around earnings quality.")
+                    if len(promoters) >= 3:
+                        change = promoters.iloc[-1] - promoters.iloc[0]
 
-            
-            # 5. GOVERNANCE & OWNERSHIP (0–20)
-           
-            governance_score = 10
+                        if change >= -1.0:
+                            governance_score = 16
+                            strengths.append("Promoter shareholding has remained broadly stable.")
+                        else:
+                            governance_score = 9
+                            risks.append("Declining promoter shareholding observed.")
 
-            if "Promoters" in shareholding_df.columns:
-                promoters = shareholding_df.sort_values("Year")["Promoters"].dropna()
 
-                if len(promoters) >= 3:
-                    if promoters.iloc[-1] >= promoters.iloc[0]:
-                        governance_score = 16
-                        strengths.append("Promoter shareholding has remained stable, indicating long-term commitment.")
-                    else:
-                        governance_score = 6
-                        risks.append("Declining promoter shareholding may warrant governance attention.")
+             
 
-            
-            # CONFIDENCE SCORE
-            
-            confidence_score = (growth_score+ profitability_score + balance_score+ cashflow_score+ governance_score)
+                confidence_score = (growth_score + profitability_score + balance_score + cashflow_score + governance_score )
 
-        
-            # DISPLAY CONFIDENCE
-       
-            st.markdown("### Overall Financial Confidence")
 
-            st.write(f"**Confidence Score:** {confidence_score}/100")
+                quality_checks = 0
+                if cashflow_score >= 16:
+                    quality_checks += 1
+                if balance_score >= 15:
+                    quality_checks += 1
+                if profitability_score >= 14:
+                    quality_checks += 1
+                if governance_score >= 14:
+                    quality_checks += 1
 
-            if confidence_score >= 80:
-                st.success("The company demonstrates strong and sustainable financial health.")
-            elif confidence_score >= 60:
-                st.warning("The company shows reasonable financial strength with some areas to monitor.")
-            else:
-                st.error("The company exhibits weak sustainability and elevated financial risk.")
+                if quality_checks >= 3 and not is_cyclical:
+                    confidence_score += 10
+                    strengths.append("The company exhibits characteristics of a high-quality, resilient business franchise.")
 
-            
-            # KEY STRENGTHS
-            
-            st.markdown("### Key Strengths")
+                # =========================================================
+                # DISPLAY
+                # =========================================================
+                st.markdown("### Overall Financial Confidence")
+                st.write(f"**Confidence Score:** {confidence_score}/100")
 
-            if strengths:
+                if confidence_score >= 80:
+                    st.success("Strong and sustainable financial profile.")
+                elif confidence_score >= 60:
+                    st.warning("Moderate financial strength with some areas to monitor.")
+                else:
+                    st.error("Weak sustainability and elevated financial risk.")
+
+                st.markdown("### Key Strengths")
                 for s in strengths[:5]:
                     st.write(f"• {s}")
-            else:
-                st.write("• No major structural strengths identified.")
 
-
-            # KEY RISKS & WATCHPOINTS
-
-            st.markdown("### Key Risks & Watchpoints")
-
-            if risks:
+                st.markdown("### Key Risks & Watchpoints")
                 for r in risks[:5]:
                     st.write(f"• {r}")
-            else:
-                st.write("• No material financial risks identified based on available data.")
+        
+        with tabs[8]:
+            st.subheader("Exit & Session Summary")
+
+            st.markdown(
+                """
+                ### Thank You for Using the Company Financial Diagnostics System  
+
+                You have successfully completed a structured financial analysis using:
+                - Multi-year financial statements  
+                - Cash flow diagnostics  
+                - Balance sheet strength checks  
+                - Ownership and governance signals  
+
+                This tool is designed to support **analyst-style decision making**, not stock tips.
+                """
+            )
+
+            st.markdown("---")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                if st.button("🔄 Start New Analysis"):
+                    st.session_state.data_loaded = False
+                    st.rerun()
+
+            with col2:
+                if st.button("🔒 Logout"):
+                    st.session_state.clear()
+                    st.rerun()
+
+            with col3:
+                st.info("You may safely close this browser tab.")
 
 
-
-
-
-
-
-
-
-
-                    
