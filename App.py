@@ -1043,6 +1043,90 @@ if st.session_state.data_loaded and url:
         with tabs[8]:
             st.subheader("Exit & Session Summary")
 
+            st.header(" Key KPIs Used in the Financial Diagnostic System")
+            st.markdown("This page summarizes the key financial metrics analyzed across different dimensions to arrive at the final diagnostic insights.")
+            st.divider()
+
+            # Growth & Performance KPIs
+            st.subheader(" Growth & Performance")
+            st.markdown("""
+            - Revenue (Yearly)
+            - Revenue (Quarterly)
+            - Net Profit (Yearly)
+            - Net Profit (Quarterly)
+            - Earnings Per Share (EPS)
+            - Revenue Growth Trend
+            - Profit Growth Trend
+            """)
+
+            # Profitability & Efficiency KPIs
+            st.subheader(" Profitability & Efficiency")
+            st.markdown("""
+            - Operating Profit
+            - Operating Margin
+            - Net Profit Margin
+            - Return on Equity (ROE)
+            - Return on Capital Employed (ROCE)
+            - Operating vs Net Profit Spread
+            """)
+
+            # Financial Position KPIs
+            st.subheader("Financial Position (Balance Sheet)")
+            st.markdown("""
+            - Total Assets
+            - Total Liabilities
+            - Borrowings
+            - Reserves & Surplus
+            - Assets vs Liabilities Trend
+            - Borrowings vs Reserves Trend
+            """)
+
+            # Cash Flow Quality KPIs
+            st.subheader(" Cash Flow Quality")
+            st.markdown("""
+            - Operating Cash Flow (OCF)
+            - Free Cash Flow (FCF)
+            - Investing Cash Flow
+            - Financing Cash Flow
+            - Profit vs Cash Flow Alignment
+            """)
+
+            # Shareholding KPIs
+            st.subheader(" Shareholding & Ownership")
+            st.markdown("""
+            - Promoter Holding (%)
+            - Foreign Institutional Investors (FII %)
+            - Domestic Institutional Investors (DII %)
+            - Public Shareholding (%)
+            - Ownership Stability Trend
+            """)
+
+            # Market & Return Context
+            st.subheader(" Market & Return Context")
+            st.markdown("""
+            - Market Capitalization
+            - Current Stock Price
+            - Dividend Yield
+            - Book Value per Share
+            - 52-Week High / Low
+            """)
+
+            # Composite Indicators
+            st.subheader(" Composite & Summary Indicators")
+            st.markdown("""
+            - Financial Confidence Score
+            - Growth Consistency Indicator
+            - Profitability Quality Indicator
+            - Balance Sheet Strength Indicator
+            - Cash Flow Sustainability Indicator
+            """)
+
+            st.divider()
+
+            st.markdown("> *These KPIs collectively provide a structured, multi-dimensional view of a company's financial health across growth, profitability, stability, cash flow quality, and ownership.*")
+
+            st.divider()
+
             st.markdown(
                 """
                 ### Thank You for Using the Company Financial Diagnostics System  
@@ -1057,8 +1141,8 @@ if st.session_state.data_loaded and url:
                 """
             )
 
-            st.markdown("---")
-
+            st.divider()
+            
             col1, col2, col3 = st.columns(3)
 
             with col1:
@@ -1073,5 +1157,8 @@ if st.session_state.data_loaded and url:
 
             with col3:
                 st.info("You may safely close this browser tab.")
+
+            st.divider()
+            st.caption("© Adarsh Gupta | Company Financial Diagnosis System")
 
 
